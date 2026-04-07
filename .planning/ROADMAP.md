@@ -71,4 +71,4 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Core Environment | 2/2 | Complete   | 2026-04-07 |
 | 2. Tasks, Graders & Disruptions | 2/2 | Complete   | 2026-04-07 |
-| 3. Inference Script & Deployment | 0/2 | Not started | - |
+| 3. Inference Script & Deployment | 2/2 | Complete     | 2026-04-07 |
