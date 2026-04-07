@@ -15,10 +15,13 @@ A working, spec-compliant OpenEnv submission deployed to HF Spaces before April 
 - [x] OpenEnv-compliant environment: typed Pydantic Observation/Action/Reward models, `step()`/`reset()`/`state()` endpoints, `openenv.yaml` metadata — Validated in Phase 01: core-environment
 - [x] Grid warehouse simulation: S=Shelf, R=Robot, P=Packing station, X=Blocked, .=Free path; multi-robot agents pick items and deliver to packing stations — Validated in Phase 01: core-environment
 
+### Validated
+
+- [x] 3 tasks with programmatic graders (easy → medium → hard), each returning score 0.0–1.0 — Validated in Phase 02: tasks-graders-disruptions
+- [x] Layered reward function: +10 delivery, +5 fast bonus, -8 collision, -1 wasted step, -3 late, +3 reroute, -10 timeout — Validated in Phase 02: tasks-graders-disruptions
+- [x] Dynamic disruptions: blocked aisle, robot breakdown, surge orders (3 types, fire mid-episode) — Validated in Phase 02: tasks-graders-disruptions
+
 ### Active
-- [ ] 3 tasks with programmatic graders (easy → medium → hard), each returning score 0.0–1.0
-- [ ] Layered reward function: +10 delivery, +5 fast bonus, -8 collision, -1 wasted step, -3 late, +3 reroute, -10 timeout
-- [ ] Dynamic disruptions: blocked aisle (random mid-episode), robot breakdown, surge orders
 - [ ] `inference.py` in root using OpenAI client with `API_BASE_URL`, `MODEL_NAME`, `HF_TOKEN`; emits `[START]`/`[STEP]`/`[END]` stdout format
 - [ ] Dockerfile that builds and runs cleanly (2 vCPU / 8 GB constraint)
 - [ ] Deployed to Hugging Face Spaces with `openenv` tag; HF Space URL returns 200 and responds to `reset()`
@@ -78,4 +81,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-07 after Phase 01 core-environment completion*
+*Last updated: 2026-04-07 after Phase 02 tasks-graders-disruptions completion*
