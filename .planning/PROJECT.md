@@ -12,12 +12,10 @@ A working, spec-compliant OpenEnv submission deployed to HF Spaces before April 
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] OpenEnv-compliant environment: typed Pydantic Observation/Action/Reward models, `step()`/`reset()`/`state()` endpoints, `openenv.yaml` metadata — Validated in Phase 01: core-environment
+- [x] Grid warehouse simulation: S=Shelf, R=Robot, P=Packing station, X=Blocked, .=Free path; multi-robot agents pick items and deliver to packing stations — Validated in Phase 01: core-environment
 
 ### Active
-
-- [ ] OpenEnv-compliant environment: typed Pydantic Observation/Action/Reward models, `step()`/`reset()`/`state()` endpoints, `openenv.yaml` metadata
-- [ ] Grid warehouse simulation: S=Shelf, R=Robot, P=Packing station, X=Blocked, .=Free path; multi-robot agents pick items and deliver to packing stations
 - [ ] 3 tasks with programmatic graders (easy → medium → hard), each returning score 0.0–1.0
 - [ ] Layered reward function: +10 delivery, +5 fast bonus, -8 collision, -1 wasted step, -3 late, +3 reroute, -10 timeout
 - [ ] Dynamic disruptions: blocked aisle (random mid-episode), robot breakdown, surge orders
@@ -80,4 +78,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-07 after initialization*
+*Last updated: 2026-04-07 after Phase 01 core-environment completion*
