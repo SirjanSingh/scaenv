@@ -50,6 +50,7 @@ class _EpisodeState:
     orders: list[OrderState]
     done: bool = False
     cumulative_reward: float = 0.0
+    collision_count: int = 0  # accumulated collision pairs across episode (for grader)
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +214,11 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
             done=ep.done,
         )
 
+    def list_tasks(self) -> list[str]:
+        """Return the ids of all registered tasks. Per TASK-05 phase success criterion."""
+        from warehouse_env.tasks import TASK_REGISTRY
+        return list(TASK_REGISTRY.keys())
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -267,6 +273,7 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
                 n = len(rids)
                 pairs = n * (n - 1) // 2
                 breakdown["collision"] = breakdown.get("collision", 0.0) + (-8.0 * pairs)
+                ep.collision_count += pairs  # accumulate for grader
 
         # 2b. Swap detection: A wants B's current pos AND B wants A's current pos
         robot_ids = list(intended.keys())
@@ -319,6 +326,7 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
                         robot.assigned_order_id = order.order_id
                         order.status = "picked"
                         order.assigned_robot_id = robot.id
+                        order.assigned_at_step = ep.step_count  # record step for fast-bonus tracking
                         breakdown["pick"] = breakdown.get("pick", 0.0) + 1.0
                         break
 

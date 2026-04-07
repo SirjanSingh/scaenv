@@ -41,6 +41,7 @@ class OrderState(BaseModel):
     status: str = "pending"  # "pending" | "picked" | "delivered"
     created_at_step: int = 0
     assigned_robot_id: Optional[int] = None
+    assigned_at_step: Optional[int] = None  # step when robot picked up this order (for fast-bonus)
 
     def to_dict(self) -> dict:
         return self.model_dump()
