@@ -16,9 +16,10 @@ app = create_app(
 )
 
 
-def main(host: str = "0.0.0.0", port: int = 8000):
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
+def main(host: str = "0.0.0.0", port: int | None = None):
+    import os, uvicorn
+    resolved_port = port if port is not None else int(os.environ.get("PORT", 7860))
+    uvicorn.run(app, host=host, port=resolved_port)
 
 
 if __name__ == "__main__":
