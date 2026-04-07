@@ -7,14 +7,14 @@
 
 ### Environment Core
 
-- [ ] **ENV-01**: `WarehouseEnv` class implements `step(action)` → `(observation, reward, done, info)`
-- [ ] **ENV-02**: `WarehouseEnv` implements `reset()` → initial `Observation`
-- [ ] **ENV-03**: `WarehouseEnv` implements `state()` → current full state dict
+- [x] **ENV-01**: `WarehouseEnv` class implements `step(action)` → `(observation, reward, done, info)`
+- [x] **ENV-02**: `WarehouseEnv` implements `reset()` → initial `Observation`
+- [x] **ENV-03**: `WarehouseEnv` implements `state()` → current full state dict
 - [x] **ENV-04**: `Observation` is a typed Pydantic model (robot positions, order queue, grid map, step count)
 - [x] **ENV-05**: `Action` is a typed Pydantic model (robot_id, action_type: move/pick/drop/wait)
 - [x] **ENV-06**: `Reward` is a typed Pydantic model (value: float, breakdown: dict)
-- [ ] **ENV-07**: `openenv.yaml` metadata file present with required fields (name, version, description, tasks)
-- [ ] **ENV-08**: `openenv validate` passes without errors
+- [x] **ENV-07**: `openenv.yaml` metadata file present with required fields (name, version, description, tasks)
+- [x] **ENV-08**: `openenv validate` passes without errors
 
 ### Grid Simulation
 

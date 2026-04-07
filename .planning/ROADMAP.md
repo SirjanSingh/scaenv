@@ -6,7 +6,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Core Environment** — OpenEnv-compliant warehouse grid with Pydantic models and step/reset/state API
+- [x] **Phase 1: Core Environment** — OpenEnv-compliant warehouse grid with Pydantic models and step/reset/state API (completed 2026-04-07)
 - [ ] **Phase 2: Tasks, Graders & Disruptions** — 3 tasks (easy→hard), layered reward function, 3 disruption types
 - [ ] **Phase 3: Inference Script & Deployment** — inference.py with [START]/[STEP]/[END] format, Dockerfile, HF Spaces deploy, README
 
@@ -27,7 +27,7 @@
 
 Plans:
 - [x] 01-01: Pydantic models + warehouse grid engine (Observation, Action, Reward models; grid state; robot/order/cell logic)
-- [ ] 01-02: OpenEnv interface + spec compliance (step/reset/state methods; openenv.yaml; validate check)
+- [x] 01-02: OpenEnv interface + spec compliance (step/reset/state methods; openenv.yaml; validate check)
 
 ### Phase 2: Tasks, Graders & Disruptions
 **Goal**: 3 fully-defined tasks with deterministic programmatic graders (scores 0.0–1.0), a layered reward function with partial progress signals, and 3 disruption types that trigger mid-episode.
@@ -69,6 +69,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Environment | 1/2 | In Progress|  |
+| 1. Core Environment | 2/2 | Complete   | 2026-04-07 |
 | 2. Tasks, Graders & Disruptions | 0/2 | Not started | - |
 | 3. Inference Script & Deployment | 0/2 | Not started | - |

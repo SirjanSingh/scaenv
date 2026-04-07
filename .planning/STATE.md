@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-core-environment/01-01-PLAN.md
-last_updated: "2026-04-07T09:46:46.561Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-04-07T10:02:34.458Z"
 last_activity: 2026-04-07
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 1 of 3 (Core Environment)
-Plan: 1 of 2 in current phase
+Plan: 2 of 2 in current phase
 Status: Ready to execute
 Last activity: 2026-04-07
 
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Accumulated Context
 
 | Phase 01-core-environment P01 | 437 | 2 tasks | 8 files |
+| Phase 01 P02 | 10 | 2 tasks | 7 files |
 
 ### Decisions
 
@@ -59,6 +60,8 @@ Progress: [░░░░░░░░░░] 0%
 - Init: YOLO mode, coarse granularity — deadline crunch
 - [Phase 01-core-environment]: WarehouseAction wraps list[RobotAction] to satisfy OpenEnv single-action contract while supporting multi-robot parallel step
 - [Phase 01-core-environment]: Grid uses dict _base + set _blocked two-layer architecture for cheap reset and clean disruption overlay
+- [Phase 01]: Singleton env pattern via lambda: _env_instance — preserves episode state across HTTP calls
+- [Phase 01]: Pick/drop adjacency uses Manhattan distance <= 1 — robots can be on packing station cell
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-07T09:46:46.551Z
-Stopped at: Completed 01-core-environment/01-01-PLAN.md
+Last session: 2026-04-07T10:02:34.447Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
