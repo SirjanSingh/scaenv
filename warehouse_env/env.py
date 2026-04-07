@@ -51,6 +51,8 @@ class _EpisodeState:
     done: bool = False
     cumulative_reward: float = 0.0
     collision_count: int = 0  # accumulated collision pairs across episode (for grader)
+    fired_disruptions: set = field(default_factory=set)       # indices of fired disruption events
+    last_disruption_msgs: list = field(default_factory=list)  # msgs from last step's disruptions
 
 
 # ---------------------------------------------------------------------------
@@ -187,9 +189,28 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
         ep.step_count += 1
         ep.cumulative_reward += reward.value
 
+        # Fire any disruption events scheduled for this step (DISR-01/02/03)
+        from warehouse_env.disruptions import apply_disruptions
+        cfg = TASK_REGISTRY[ep.task_id]
+        disruption_msgs = apply_disruptions(ep, cfg, ep.step_count)
+        ep.last_disruption_msgs = disruption_msgs
+
         # Check episode termination
         all_delivered = all(o.status == "delivered" for o in ep.orders)
         ep.done = all_delivered or (ep.step_count >= ep.max_steps)
+
+        # Add timeout penalty if episode ends with unfulfilled orders (REW-07)
+        if ep.done:
+            unfulfilled = [o for o in ep.orders if o.status != "delivered"]
+            if unfulfilled:
+                from warehouse_env.reward import RewardContext, calculate_reward
+                timeout_ctx = RewardContext(is_done=True, unfulfilled_at_done=unfulfilled)
+                timeout_rew = calculate_reward(timeout_ctx)
+                reward = WarehouseReward(
+                    value=reward.value + timeout_rew.value,
+                    breakdown={**reward.breakdown, **timeout_rew.breakdown},
+                )
+                ep.cumulative_reward += timeout_rew.value
 
         # Build observation
         obs = self._build_observation()
@@ -232,6 +253,9 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
         - Two robots wanting the same target cell both stay.
         - Two robots swapping cells both stay.
         """
+        
+        # Snapshot currently-delivered orders to detect new deliveries this step
+        _prev_delivered = {o.order_id for o in ep.orders if o.status == "delivered"}
         breakdown: dict[str, float] = {}
 
         # Normalize action types: invalid -> 'wait'
@@ -343,11 +367,57 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
                             order.status = "delivered"
                             robot.carrying_item = False
                             robot.assigned_order_id = None
-                            breakdown["delivery"] = breakdown.get("delivery", 0.0) + 10.0
+                            # delivery reward now handled by calculate_reward below
                         break
 
-        total = sum(breakdown.values())
-        return WarehouseReward(value=total, breakdown=breakdown)
+        # Build RewardContext — calculate_reward handles all REW components
+        from warehouse_env.reward import RewardContext, calculate_reward
+        
+        # Collect newly delivered orders this step
+        newly_delivered = [o for o in ep.orders if o.order_id not in _prev_delivered and o.status == "delivered"]
+        
+        # Determine late deliveries
+        cfg = TASK_REGISTRY[ep.task_id]
+        late = []
+        for o in newly_delivered:
+            if o.assigned_at_step is not None:
+                steps_taken = ep.step_count - o.assigned_at_step
+                if steps_taken > cfg.time_bonus_window:
+                    late.append(o)
+        
+        # Collect wait robot IDs
+        wait_ids = {rid for rid, atype in normalized.items() if atype == "wait"}
+        
+        # Reroute bonus: robot moved this step AND old pos was adjacent to a blocked cell
+        reroute_ids: set[int] = set()
+        if ep.grid._blocked:
+            for robot in ep.robots:
+                old_pos = current_positions.get(robot.id)
+                new_pos = intended.get(robot.id)
+                if old_pos and new_pos and old_pos != new_pos:
+                    for br, bc in ep.grid._blocked:
+                        if abs(old_pos[0] - br) + abs(old_pos[1] - bc) <= 1:
+                            reroute_ids.add(robot.id)
+                            break
+        
+        # Count collision pairs from target_counts
+        step_collision_pairs = sum(
+            len(rids) * (len(rids) - 1) // 2
+            for rids in target_counts.values()
+            if len(rids) >= 2
+        )
+        
+        context = RewardContext(
+            fulfilled_this_step=newly_delivered,
+            late_this_step=late,
+            wait_robot_ids=wait_ids,
+            collision_pairs=step_collision_pairs,
+            reroute_robot_ids=reroute_ids,
+            unfulfilled_at_done=[],
+            is_done=False,
+            task_time_bonus_window=cfg.time_bonus_window,
+        )
+        return calculate_reward(context)
 
     def _build_observation(self) -> WarehouseObservation:
         """Build a WarehouseObservation from current episode state."""
@@ -387,5 +457,12 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
         # Mention active blocks (disruptions)
         if ep.grid._blocked:
             parts.append(f"Active disruptions: {len(ep.grid._blocked)} blocked cell(s).")
+
+        # Append disruption messages so the LLM sees them in obs.description
+        if hasattr(ep, 'last_disruption_msgs') and ep.last_disruption_msgs:
+            parts.append("")
+            parts.append("DISRUPTION ALERTS:")
+            for msg in ep.last_disruption_msgs:
+                parts.append(f"  - {msg}")
 
         return " ".join(parts)

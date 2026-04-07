@@ -7,7 +7,7 @@
 ## Phases
 
 - [x] **Phase 1: Core Environment** — OpenEnv-compliant warehouse grid with Pydantic models and step/reset/state API (completed 2026-04-07)
-- [ ] **Phase 2: Tasks, Graders & Disruptions** — 3 tasks (easy→hard), layered reward function, 3 disruption types
+- [x] **Phase 2: Tasks, Graders & Disruptions** — 3 tasks (easy→hard), layered reward function, 3 disruption types  (completed 2026-04-07)
 - [ ] **Phase 3: Inference Script & Deployment** — inference.py with [START]/[STEP]/[END] format, Dockerfile, HF Spaces deploy, README
 
 ## Phase Details
@@ -43,8 +43,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Task definitions + graders (task registry; solo_delivery/coordinated_delivery/crisis_management; grader logic)
-- [ ] 02-02: Reward function + disruption system (layered reward calculator; blocked aisle/robot breakdown/surge order events)
+- [x] 02-01: Task definitions + graders (task registry; solo_delivery/coordinated_delivery/crisis_management; grader logic)
+- [x] 02-02: Reward function + disruption system (layered reward calculator; blocked aisle/robot breakdown/surge order events)
 
 ### Phase 3: Inference Script & Deployment
 **Goal**: `inference.py` emits correct [START]/[STEP]/[END] stdout, runs all 3 tasks under 20 min; Dockerfile builds and runs; HF Space deployed and pingable; README complete.
@@ -70,5 +70,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Environment | 2/2 | Complete   | 2026-04-07 |
-| 2. Tasks, Graders & Disruptions | 0/2 | Not started | - |
+| 2. Tasks, Graders & Disruptions | 2/2 | Complete   | 2026-04-07 |
 | 3. Inference Script & Deployment | 0/2 | Not started | - |
