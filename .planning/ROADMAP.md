@@ -26,7 +26,7 @@
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Pydantic models + warehouse grid engine (Observation, Action, Reward models; grid state; robot/order/cell logic)
+- [x] 01-01: Pydantic models + warehouse grid engine (Observation, Action, Reward models; grid state; robot/order/cell logic)
 - [ ] 01-02: OpenEnv interface + spec compliance (step/reset/state methods; openenv.yaml; validate check)
 
 ### Phase 2: Tasks, Graders & Disruptions
@@ -69,6 +69,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Environment | 0/2 | Not started | - |
+| 1. Core Environment | 1/2 | In Progress|  |
 | 2. Tasks, Graders & Disruptions | 0/2 | Not started | - |
 | 3. Inference Script & Deployment | 0/2 | Not started | - |

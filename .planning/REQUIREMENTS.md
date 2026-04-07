@@ -10,19 +10,19 @@
 - [ ] **ENV-01**: `WarehouseEnv` class implements `step(action)` → `(observation, reward, done, info)`
 - [ ] **ENV-02**: `WarehouseEnv` implements `reset()` → initial `Observation`
 - [ ] **ENV-03**: `WarehouseEnv` implements `state()` → current full state dict
-- [ ] **ENV-04**: `Observation` is a typed Pydantic model (robot positions, order queue, grid map, step count)
-- [ ] **ENV-05**: `Action` is a typed Pydantic model (robot_id, action_type: move/pick/drop/wait)
-- [ ] **ENV-06**: `Reward` is a typed Pydantic model (value: float, breakdown: dict)
+- [x] **ENV-04**: `Observation` is a typed Pydantic model (robot positions, order queue, grid map, step count)
+- [x] **ENV-05**: `Action` is a typed Pydantic model (robot_id, action_type: move/pick/drop/wait)
+- [x] **ENV-06**: `Reward` is a typed Pydantic model (value: float, breakdown: dict)
 - [ ] **ENV-07**: `openenv.yaml` metadata file present with required fields (name, version, description, tasks)
 - [ ] **ENV-08**: `openenv validate` passes without errors
 
 ### Grid Simulation
 
-- [ ] **GRID-01**: Warehouse grid supports cell types: Shelf (S), Robot (R), Packing station (P), Blocked (X), Free (.)
-- [ ] **GRID-02**: Robots can execute 6 action types: move_up, move_down, move_left, move_right, pick, drop
-- [ ] **GRID-03**: Collision detection — two robots cannot occupy the same cell; collision triggers penalty
-- [ ] **GRID-04**: Order queue: each order is (shelf_id → packing_station_id); robots pick from shelf and drop at station
-- [ ] **GRID-05**: Episode ends when all orders fulfilled OR max_steps reached
+- [x] **GRID-01**: Warehouse grid supports cell types: Shelf (S), Robot (R), Packing station (P), Blocked (X), Free (.)
+- [x] **GRID-02**: Robots can execute 6 action types: move_up, move_down, move_left, move_right, pick, drop
+- [x] **GRID-03**: Collision detection — two robots cannot occupy the same cell; collision triggers penalty
+- [x] **GRID-04**: Order queue: each order is (shelf_id → packing_station_id); robots pick from shelf and drop at station
+- [x] **GRID-05**: Episode ends when all orders fulfilled OR max_steps reached
 
 ### Tasks & Graders
 
