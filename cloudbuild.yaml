@@ -1,0 +1,60 @@
+# Cloud Build CI/CD pipeline
+# Triggered on every push to master via GitHub connection
+# Builds Docker image → pushes to Artifact Registry → deploys to Cloud Run
+
+steps:
+  # Step 1: Build the Docker image (tagged with commit SHA + latest)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/warehouse-env:$COMMIT_SHA'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/warehouse-env:latest'
+      - '.'
+
+  # Step 2: Push all tags to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/warehouse-env'
+
+  # Step 3: Deploy to Cloud Run with scale-to-zero
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'warehouse-env'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/warehouse-env:$COMMIT_SHA'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '3'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--port'
+      - '8080'
+      - '--timeout'
+      - '300'
+
+# Substitution variables — override via trigger settings or CLI
+substitutions:
+  _REGION: 'asia-south1'
+  _REPO: 'scaenv-repo'
+
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/warehouse-env:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/warehouse-env:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

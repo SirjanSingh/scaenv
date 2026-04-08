@@ -1,0 +1,13 @@
+.git
+.venv
+.planning
+.pytest_cache
+.claude
+__pycache__
+*.pyc
+simulation.log
+output.json
+tmp/
+tests/
+*.egg-info
+uv.lock

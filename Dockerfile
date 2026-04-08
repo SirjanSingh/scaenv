@@ -8,10 +8,10 @@ COPY . .
 # Install all dependencies including uvicorn (via pyproject.toml)
 RUN pip install --no-cache-dir -e .
 
-# HF Spaces sets PORT=7860 automatically; set it explicitly as default (D-17)
-ENV PORT=7860
+# Cloud Run injects PORT at runtime (default 8080); HF Spaces uses 7860
+ENV PORT=8080
 
-EXPOSE 7860
+EXPOSE ${PORT}
 
-# Run the OpenEnv HTTP server via uvicorn (D-15)
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
+# Shell form so $PORT is expanded at runtime by Cloud Run
+CMD uvicorn server.app:app --host 0.0.0.0 --port $PORT

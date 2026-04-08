@@ -85,8 +85,39 @@ server
 
 ```bash
 docker build -t warehouse-env .
-docker run -p 7860:7860 warehouse-env
+docker run -p 7860:7860 -e PORT=7860 warehouse-env
 ```
+
+**Cloud Run Deployment (Scale-to-Zero)**
+
+The Docker image supports automatic scale-to-zero on Google Cloud Run — the container shuts down when no requests are coming in, so you pay nothing when idle.
+
+```bash
+# One-time setup: enable APIs and create Artifact Registry repo
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+gcloud artifacts repositories create scaenv-repo --repository-format=docker --location=asia-south1
+
+# Deploy directly from source
+gcloud run deploy warehouse-env \
+  --source . \
+  --region asia-south1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --min-instances 0 \
+  --max-instances 3 \
+  --memory 512Mi \
+  --port 8080
+```
+
+After deployment, your API is live at `https://warehouse-env-<hash>.run.app`.
+
+**CI/CD (GitHub → Cloud Build → Cloud Run)**
+
+Every push to `master` automatically builds and deploys via Google Cloud Build. See `cloudbuild.yaml` for the pipeline config. To set up:
+
+1. Connect your GitHub repo in [Cloud Build Triggers](https://console.cloud.google.com/cloud-build/triggers)
+2. Create a trigger watching `master` branch, using `cloudbuild.yaml`
+3. Grant Cloud Build the `Cloud Run Admin` and `Service Account User` roles
 
 **Run inference.py (LLM agent)**
 

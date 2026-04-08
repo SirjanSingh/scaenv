@@ -16,6 +16,12 @@ app = create_app(
 )
 
 
+# Health check endpoint for Cloud Run startup probes and monitoring
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 def main(host: str = "0.0.0.0", port: int | None = None):
     import os, uvicorn
     resolved_port = port if port is not None else int(os.environ.get("PORT", 7860))

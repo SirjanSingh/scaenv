@@ -7,7 +7,8 @@
       "Skill(gsd:plan-phase:*)",
       "WebSearch",
       "Skill(gsd:execute-phase)",
-      "Skill(gsd:execute-phase:*)"
+      "Skill(gsd:execute-phase:*)",
+      "Bash(python inference.py)"
     ]
   }
 }
