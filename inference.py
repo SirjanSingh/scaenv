@@ -1,12 +1,12 @@
 import os, json
 
-_REQUIRED = ["API_BASE_URL", "MODEL_NAME", "HF_TOKEN"]
+_REQUIRED = ["API_BASE_URL", "HF_TOKEN"]
 _missing = [v for v in _REQUIRED if not os.environ.get(v)]
 if _missing:
     raise EnvironmentError(f"Missing required env vars: {', '.join(_missing)}")
 
 API_BASE_URL = os.environ["API_BASE_URL"]
-MODEL_NAME   = os.environ["MODEL_NAME"]
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN     = os.environ["HF_TOKEN"]
 
 from openai import OpenAI
