@@ -9,7 +9,7 @@ COPY . .
 RUN pip install --no-cache-dir -e .
 
 # Cloud Run injects PORT at runtime (default 8080); HF Spaces uses 7860
-ENV PORT=8080
+ENV PORT=7860
 
 EXPOSE ${PORT}
 
