@@ -214,9 +214,17 @@ class WarehouseEnv(Environment[WarehouseAction, WarehouseObservation, WarehouseS
 
         # Build observation
         obs = self._build_observation()
-        obs.reward = reward.value
         obs.done = ep.done
         obs.metadata["reward_breakdown"] = reward.breakdown
+
+        # When episode is done, set reward to the grader score (strictly in (0,1))
+        # so the hackathon evaluation platform sees a valid task score.
+        if ep.done:
+            from warehouse_env.graders import GRADER_REGISTRY
+            obs.reward = GRADER_REGISTRY[ep.task_id](self)
+        else:
+            obs.reward = reward.value
+
         return obs
 
     @property
