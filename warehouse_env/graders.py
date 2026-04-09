@@ -1,7 +1,7 @@
 """Programmatic graders for WarehouseEnv tasks.
 
 Each grader reads env._episode internals at episode end (done=True) and
-returns a deterministic float in [0.0, 1.0].
+returns a deterministic float in (0.0, 1.0) — strictly exclusive of endpoints.
 
 Called by inference.py after env.step() returns done=True:
     score = GRADER_REGISTRY[task_id](env)
@@ -13,6 +13,15 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from warehouse_env.env import WarehouseEnv
 
+# Clamp bounds: scores must be strictly in (0, 1), never exactly 0.0 or 1.0
+_SCORE_MIN = 0.001
+_SCORE_MAX = 0.999
+
+
+def _clamp_score(score: float) -> float:
+    """Clamp a score to (_SCORE_MIN, _SCORE_MAX) for validator compliance."""
+    return round(max(_SCORE_MIN, min(_SCORE_MAX, score)), 6)
+
 
 def grade_solo_delivery(env: "WarehouseEnv") -> float:
     """TASK-01 grader: orders_fulfilled / 5. Pure completion ratio.
@@ -20,10 +29,10 @@ def grade_solo_delivery(env: "WarehouseEnv") -> float:
     Decision D-19: grade = fulfilled / 5 (max 5 orders).
     """
     if env._episode is None:
-        return 0.0
+        return _SCORE_MIN
     ep = env._episode
     fulfilled = sum(1 for o in ep.orders if o.status == "delivered")
-    return round(min(1.0, fulfilled / 5), 6)
+    return _clamp_score(fulfilled / 5)
 
 
 def grade_coordinated_delivery(env: "WarehouseEnv") -> float:
@@ -35,13 +44,13 @@ def grade_coordinated_delivery(env: "WarehouseEnv") -> float:
       score = max(0.0, base - penalty)
     """
     if env._episode is None:
-        return 0.0
+        return _SCORE_MIN
     ep = env._episode
     fulfilled = sum(1 for o in ep.orders if o.status == "delivered")
     base = fulfilled / 10
     collision_count = getattr(ep, "collision_count", 0)
     penalty = 0.05 * collision_count
-    return round(max(0.0, base - penalty), 6)
+    return _clamp_score(base - penalty)
 
 
 def grade_crisis_management(env: "WarehouseEnv") -> float:
@@ -58,7 +67,7 @@ def grade_crisis_management(env: "WarehouseEnv") -> float:
     Total possible = 25 orders.
     """
     if env._episode is None:
-        return 0.0
+        return _SCORE_MIN
     ep = env._episode
 
     total_orders = len(ep.orders)
@@ -88,7 +97,7 @@ def grade_crisis_management(env: "WarehouseEnv") -> float:
         + survival_score * 0.3
         + disruption_score * 0.2
     )
-    return round(min(1.0, max(0.0, composite)), 6)
+    return _clamp_score(composite)
 
 
 # ---------------------------------------------------------------------------
