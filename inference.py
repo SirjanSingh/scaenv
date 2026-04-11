@@ -303,7 +303,7 @@ def run_task(env: WarehouseEnv, task_id: str) -> None:
         error_field = error_msg if error_msg else "null"
 
         log_print(
-            f"[STEP] step={step_num} action={action_str} reward={reward:.2f} "
+            f"[STEP] step={step_num} action={action_str} reward={reward:.4f} "
             f"done={str(done).lower()} error={error_field}"
         )
         render_grid(obs, action_str=action_str, reward=reward)
@@ -312,12 +312,17 @@ def run_task(env: WarehouseEnv, task_id: str) -> None:
             break
 
     score   = GRADER_REGISTRY[task_id](env)
-    success = score > 0.0
-    rewards_str = ",".join(f"{r:.2f}" for r in all_rewards)
+    # "success" means the agent actually delivered something — not that the
+    # clamped score is > 0 (which is always true by construction).
+    delivered = sum(
+        1 for o in obs.order_queue if o["status"] == "delivered"
+    )
+    success = delivered > 0
+    rewards_str = ",".join(f"{r:.4f}" for r in all_rewards)
 
     log_print(
         f"[END] success={str(success).lower()} steps={len(all_rewards)} "
-        f"score={score:.2f} rewards={rewards_str}"
+        f"score={score:.4f} rewards={rewards_str}"
     )
 
 # ─── Entry point ─────────────────────────────────────────────────────────────

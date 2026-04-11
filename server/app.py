@@ -19,7 +19,7 @@ app = create_app(
 # Health check endpoint for Cloud Run startup probes and monitoring
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "healthy"}
 
 
 def main(host: str = "0.0.0.0", port: int | None = None):

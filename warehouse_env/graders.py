@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from warehouse_env.env import WarehouseEnv
 
 # Clamp bounds: scores must be strictly in (0, 1), never exactly 0.0 or 1.0
-_SCORE_MIN = 0.001
-_SCORE_MAX = 0.999
+_SCORE_MIN = 0.01
+_SCORE_MAX = 0.99
 
 
 def _clamp_score(score: float) -> float:
