@@ -7,15 +7,17 @@ tags:
 
 # WarehouseEnv — Multi-Robot Warehouse Benchmark
 
-OpenEnv-compliant multi-robot warehouse environment for the Meta x PyTorch / Scaler Hackathon.
+OpenEnv-compliant multi-robot warehouse environment built for the Meta x PyTorch / Scaler OpenEnv Hackathon by **Team PyGuys**.
 
 ## What This Is
 
-WarehouseEnv is a grid-based warehouse simulation where one or more robots must pick items from shelves and deliver them to packing stations. It is designed as a benchmark environment for LLM-driven multi-agent coordination under the [OpenEnv](https://github.com/openenv-project/openenv) specification.
+WarehouseEnv is a grid-based warehouse simulation where one or more LLM-driven robots pick items from shelves and deliver them to packing stations under real-world-like constraints. It is designed as a benchmark for multi-agent coordination, adaptive planning, and disruption recovery under the [OpenEnv](https://github.com/openenv-project/openenv) specification.
 
-The environment supports three tasks of increasing difficulty, programmatic graders that return deterministic scores in [0.0, 1.0], and mid-episode disruptions (blocked aisles, robot breakdowns, surge orders) that test adaptive planning.
-
-All game logic, reward shaping, and grading are implemented in pure Python + Pydantic — no NumPy, no external simulation frameworks. This keeps the Docker image small and dependencies minimal.
+**Key design principles:**
+- Three tasks of escalating difficulty — from single-robot navigation to 5-robot crisis coordination
+- Mid-episode disruptions (blocked aisles, robot breakdowns, order surges) that force runtime adaptation
+- Deterministic graders with meaningful partial-credit scoring — no cliff-edge pass/fail
+- Pure Python + Pydantic — no NumPy, no simulation frameworks, minimal Docker image
 
 ## Action & Observation Space
 
@@ -39,27 +41,87 @@ Each `step()` and `reset()` returns a `WarehouseObservation` with:
 |---|---|---|
 | `grid` | `list[list[str]]` | 2D grid; cells: `R0`/`R1`/`S`/`P`/`X`/`.` |
 | `robots` | `list[RobotState]` | Per-robot position, carrying status, active flag |
-| `order_queue` | `list[dict]` | Pending and in-progress orders |
+| `order_queue` | `list[dict]` | All orders with status: `pending` / `picked` / `delivered` |
 | `step_count` | `int` | Current step within episode |
 | `max_steps` | `int` | Episode length for this task |
 | `task_id` | `str` | Active task identifier |
 | `description` | `str` | Auto-generated natural language summary for LLM prompts |
 | `done` | `bool` | Whether the episode has ended |
-| `reward` | `float` | Step reward |
+| `reward` | `float` | Current grader score in `(0.01, 0.99)` — strictly bounded for validator compliance |
 
 ## Tasks
 
 | Task | Difficulty | Robots | Orders | Grid | Max Steps | Disruptions |
 |---|---|---|---|---|---|---|
-| `solo_delivery` | Easy | 1 | 5 | 10x10 | 100 | None |
-| `coordinated_delivery` | Medium | 3 | 10 | 12x12 | 150 | Blocked aisle at step 20 |
-| `crisis_management` | Hard | 5 | 20 | 15x15 | 200 | Robot breakdown at step 15; surge orders at step 25 |
+| `solo_delivery` | Easy | 1 | 5 | 10×10 | 100 | None |
+| `coordinated_delivery` | Medium | 3 | 10 | 12×12 | 150 | Blocked aisle at step 20 |
+| `crisis_management` | Hard | 5 | 20 + 5 surge | 15×15 | 200 | Robot breakdown at step 15; surge orders at step 25 |
 
-**solo_delivery**: One robot navigates a 10x10 grid to fulfill 5 orders. Tests basic path planning and pick/drop sequencing.
+**solo_delivery** — One robot navigates a 10×10 grid to fulfill 5 orders. Tests basic path planning and pick/drop sequencing. Grader: `fulfilled / 5`.
 
-**coordinated_delivery**: Three robots share a 12x12 grid to fulfill 10 orders. A blocked aisle appears at step 20, requiring rerouting. Tests multi-agent coordination and disruption handling.
+**coordinated_delivery** — Three robots share a 12×12 grid to fulfill 10 orders. A blocked aisle appears at step 20, requiring real-time rerouting. Collision penalty applied per pair. Grader: `max(0, fulfilled/10 − 0.05×collisions)`.
 
-**crisis_management**: Five robots handle 20 initial orders on a 15x15 grid. Robot 2 breaks down at step 15 (permanently inactive). Five surge orders are injected at step 25. Grader weights: 50% order completion, 30% robot survival, 20% surge order completion.
+**crisis_management** — Five robots handle 20 initial orders on a 15×15 grid. Robot 2 breaks down permanently at step 15. Five surge orders are injected at step 25. Grader: `0.5×order_completion + 0.3×robot_survival + 0.2×surge_completion`.
+
+## Disruption System
+
+Disruptions fire at pre-scheduled steps and are visible in `obs.description` immediately:
+
+| Disruption | Task | Step | Effect |
+|---|---|---|---|
+| `blocked_aisle` | coordinated_delivery | 20 | Two cells become impassable (`X`); robots on those cells are displaced |
+| `robot_breakdown` | crisis_management | 15 | Robot 2 deactivated permanently; its carried order returned to pending |
+| `surge_orders` | crisis_management | 25 | 5 new orders injected into the queue |
+
+## Reward & Grading
+
+`obs.reward` at every step equals the **current grader score** — a live task completion signal in `(0.01, 0.99)`. This means:
+
+- Rewards start near `0.01` (nothing delivered) and climb as orders complete
+- The final step's reward equals the terminal task score used by the validator
+- Raw shaped reward (delivery bonuses, collision penalties) is preserved in `obs.metadata["raw_reward"]`
+
+All scores are strictly in `(0.01, 0.99)` — never exactly `0.0` or `1.0` — per OpenEnv validator requirements.
+
+## LLM Agent — inference.py
+
+`inference.py` implements an LLM agent that drives all robots via a single OpenAI-compatible API call per step.
+
+**Coordination techniques:**
+- **BFS shortest-path navigation** — each robot computes its true shortest path around walls, blocked cells, and other robots. Two-pass: first respects other robots' positions, then ignores them if blocked (they may have moved).
+- **Greedy nearest-neighbour order assignment** — idle robots are assigned their closest unassigned order by Manhattan distance, not round-robin. Prevents two robots charging the same shelf.
+- **Per-robot AVOID cell list** — every robot instruction explicitly lists the current cells occupied by other robots.
+- **Stuck detection** — after 3 steps at the same position, the robot receives a perpendicular escape hint.
+- **Surge pre-warning** — in `crisis_management`, idle robots are alerted 7 steps before the step-25 surge to pre-position near shelves.
+
+**Environment variables required:**
+
+```bash
+export API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+export HF_TOKEN=AIza...          # Google AI Studio API key (any OpenAI-compatible key)
+export MODEL_NAME=gemini-2.5-flash   # optional, this is the default
+python inference.py
+```
+
+Runs all 3 tasks sequentially and writes `[START]` / `[STEP]` / `[END]` lines to stdout and `simulation.log`.
+
+## Benchmark Scores
+
+**LLM agent (Gemini 2.5 Flash):**
+
+| Task | Score | Orders | Steps Used | Notes |
+|---|---|---|---|---|
+| `solo_delivery` | **0.99** | 5/5 | 91/100 | All orders delivered |
+| `coordinated_delivery` | **0.40** | 9/10 | 150/150 | 1 order undelivered at timeout; score penalised by collisions early in episode |
+| `crisis_management` | **0.64** | 20/25 | 200/200 | Robot 2 broke at step 15; 3 surge orders in-transit at timeout |
+
+**Dumb baseline (all robots `wait` every step):**
+
+| Task | Score | Notes |
+|---|---|---|
+| `solo_delivery` | 0.01 | No orders fulfilled |
+| `coordinated_delivery` | 0.01 | No orders fulfilled |
+| `crisis_management` | 0.24 | Survival component only: 4/5 robots still active |
 
 ## Setup & Usage
 
@@ -73,11 +135,7 @@ pip install -e .
 
 ```bash
 uvicorn server.app:app --host 0.0.0.0 --port 7860
-```
-
-Or via the project entry point:
-
-```bash
+# or via entry point:
 server
 ```
 
@@ -88,16 +146,9 @@ docker build -t warehouse-env .
 docker run -p 7860:7860 -e PORT=7860 warehouse-env
 ```
 
-**Cloud Run Deployment (Scale-to-Zero)**
-
-The Docker image supports automatic scale-to-zero on Google Cloud Run — the container shuts down when no requests are coming in, so you pay nothing when idle.
+**Cloud Run (GCP)**
 
 ```bash
-# One-time setup: enable APIs and create Artifact Registry repo
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
-gcloud artifacts repositories create scaenv-repo --repository-format=docker --location=asia-south1
-
-# Deploy directly from source
 gcloud run deploy warehouse-env \
   --source . \
   --region asia-south1 \
@@ -109,35 +160,22 @@ gcloud run deploy warehouse-env \
   --port 8080
 ```
 
-After deployment, your API is live at `https://warehouse-env-<hash>.run.app`.
+Every push to `master` automatically builds and redeploys via `cloudbuild.yaml`.
 
-**CI/CD (GitHub → Cloud Build → Cloud Run)**
+## Project Structure
 
-Every push to `master` automatically builds and deploys via Google Cloud Build. See `cloudbuild.yaml` for the pipeline config. To set up:
-
-1. Connect your GitHub repo in [Cloud Build Triggers](https://console.cloud.google.com/cloud-build/triggers)
-2. Create a trigger watching `master` branch, using `cloudbuild.yaml`
-3. Grant Cloud Build the `Cloud Run Admin` and `Service Account User` roles
-
-**Run inference.py (LLM agent)**
-
-Requires `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN` environment variables:
-
-```bash
-export API_BASE_URL=https://api-inference.huggingface.co/v1
-export MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
-export HF_TOKEN=hf_...
-python inference.py
 ```
-
-`inference.py` runs all 3 tasks sequentially and emits `[START]`/`[STEP]`/`[END]` lines to stdout per the OpenEnv inference spec.
-
-## Baseline Scores
-
-Scores for a dumb agent that sends `wait` for all robots every step:
-
-| Task | Score | Notes |
-|---|---|---|
-| `solo_delivery` | 0.0 | No orders fulfilled (robot never moves) |
-| `coordinated_delivery` | 0.0 | No orders fulfilled (robots never move) |
-| `crisis_management` | 0.24 | Survival component: 4/5 robots still active at end (robot 2 breaks at step 15), 0 orders fulfilled |
+warehouse_env/
+  env.py          — WarehouseEnv: reset(), step(), state property
+  models.py       — Pydantic models: WarehouseAction, WarehouseObservation, ...
+  grid.py         — Grid engine: passability, robot placement, blocked cells
+  tasks.py        — TASK_REGISTRY: TaskConfig for all 3 tasks
+  reward.py       — Layered reward calculator (delivery, collision, timeout, ...)
+  graders.py      — GRADER_REGISTRY: deterministic task-score functions
+  disruptions.py  — Disruption handlers: blocked_aisle, robot_breakdown, surge_orders
+server/
+  app.py          — FastAPI app via openenv create_app(); singleton env instance
+inference.py      — LLM agent: BFS nav, nearest-neighbour assignment, surge pre-warning
+openenv.yaml      — OpenEnv environment manifest
+Dockerfile        — Docker build for HF Spaces / Cloud Run
+```
