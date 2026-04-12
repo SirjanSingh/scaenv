@@ -109,11 +109,11 @@ Runs all 3 tasks sequentially and writes `[START]` / `[STEP]` / `[END]` lines to
 
 **LLM agent (Gemini 2.5 Flash):**
 
-| Task | Score | Orders | Steps Used | Notes |
-|---|---|---|---|---|
-| `solo_delivery` | **0.99** | 5/5 | 83/100 | All orders delivered |
-| `coordinated_delivery` | **0.70** | 7/10 | 139/150 | BFS rerouted around blocked aisle at step 20 |
-| `crisis_management` | **0.64** | 20/25 | 200/200 | Robot 2 broke at step 15; 3 surge orders in-transit at timeout |
+| Task | Score | Steps Used | Notes |
+|---|---|---|---|
+| `solo_delivery` | **0.99** | 75/100 | All 5 orders delivered |
+| `coordinated_delivery` | **0.99** | 69/150 | All 10 orders delivered; BFS rerouted around blocked aisle at step 20 |
+| `crisis_management` | **0.92** | 200/200 | Robot 2 broke at step 15; near-full delivery despite breakdown + surge |
 
 **Dumb baseline (all robots `wait` every step):**
 
