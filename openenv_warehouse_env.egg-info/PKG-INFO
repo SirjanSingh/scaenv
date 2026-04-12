@@ -6,5 +6,6 @@ Requires-Python: >=3.10
 Requires-Dist: openenv-core[core]>=0.2.3
 Requires-Dist: pydantic>=2.0.0
 Requires-Dist: uvicorn>=0.29.0
+Requires-Dist: openai>=1.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0.0; extra == "dev"

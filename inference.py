@@ -1,4 +1,5 @@
 import os, json
+from collections import deque, defaultdict
 
 _REQUIRED = ["API_BASE_URL", "HF_TOKEN"]
 _missing = [v for v in _REQUIRED if not os.environ.get(v)]
@@ -17,23 +18,123 @@ from warehouse_env.tasks import TASK_REGISTRY
 
 client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
+# Collision avoidance is the #1 priority — spelled out before anything else
 PROMPT_TEMPLATE = (
-    "You are controlling warehouse robots in a grid warehouse.\n"
-    "Grid: rows increase downward, cols increase rightward.\n\n"
+    "You are a warehouse robot controller. Respond ONLY with a JSON array.\n\n"
+    ">>> COLLISION AVOIDANCE — TOP PRIORITY <<<\n"
+    "- Two robots entering the same cell = permanent score penalty.\n"
+    "- Each robot's instruction below lists AVOID cells (other robots). NEVER move there.\n"
+    "- If your Suggested action leads into an AVOID cell, choose 'wait' or a perpendicular move.\n"
+    "- Never send two robots to the same destination in the same step.\n\n"
     "CURRENT STATE:\n{description}\n\n"
-    "PENDING ORDERS:\n{order_info}\n\n"
-    "ROBOT INSTRUCTIONS (follow exactly):\n{robot_info}\n\n"
-    "RULES:\n"
-    "- [■S■] cells are WALLS — robots CANNOT enter them. Stand NEXT TO the shelf, then pick.\n"
-    "- [_P_] cells are walkable — robots CAN enter or stand adjacent, then drop.\n"
-    "- pick works when Manhattan distance to shelf ≤ 1\n"
-    "- drop works when Manhattan distance to packing station ≤ 1\n"
-    "- Each robot MUST appear EXACTLY ONCE in your response.\n"
-    "- Do NOT send two robots to the same cell — they will collide.\n\n"
-    'Return a JSON array, one entry per active robot: [{{"robot_id": <int>, "action_type": "<move_up|move_down|move_left|move_right|pick|drop|wait>"}}]\n'
-    "Return ONLY the JSON array, no markdown.\n\n"
-    "Actions JSON:\n"
+    "ORDERS:\n{order_info}\n\n"
+    "PER-ROBOT INSTRUCTIONS:\n{robot_info}\n\n"
+    "MOVEMENT RULES:\n"
+    "- [■S■] shelf = WALL, robots CANNOT enter. Stand adjacent, then pick.\n"
+    "- [XXX] blocked = WALL, robots CANNOT enter.\n"
+    "- [_P_] packing station = walkable, robots CAN enter, then drop.\n"
+    "- pick: valid when Manhattan distance to shelf ≤ 1\n"
+    "- drop: valid when Manhattan distance to packing station ≤ 1\n"
+    "- Each active robot MUST appear EXACTLY ONCE in your response.\n\n"
+    'Return JSON array only: [{{"robot_id": <int>, "action_type": "<move_up|move_down|move_left|move_right|pick|drop|wait>"}}]\n'
+    "No markdown, no explanation.\n\nActions JSON:\n"
 )
+
+# ─── Deadlock tracking ───────────────────────────────────────────────────────
+
+# Per-robot position history (last 5 steps) — reset at each task start
+_robot_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=5))
+
+
+def _reset_history() -> None:
+    _robot_history.clear()
+
+
+def _update_history(obs) -> None:
+    """Record each active robot's position after a step."""
+    for r in obs.robots:
+        if r.is_active:
+            _robot_history[r.id].append((r.row, r.col))
+
+
+def _is_stuck(robot_id: int, current_pos: tuple, steps: int = 3) -> bool:
+    """True if robot has been at the same cell for `steps` consecutive steps."""
+    hist = _robot_history.get(robot_id)
+    if not hist or len(hist) < steps:
+        return False
+    return all(p == current_pos for p in list(hist)[-steps:])
+
+
+# ─── Grid-aware pathfinding helpers ─────────────────────────────────────────
+
+def _cell_passable(grid: list[list[str]], r: int, c: int, self_label: str = "") -> bool:
+    """True if a robot can move into (r,c): in-bounds, not S/X, not another robot."""
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+    if r < 0 or r >= rows or c < 0 or c >= cols:
+        return False
+    cell = grid[r][c]
+    if cell in ("S", "X"):
+        return False
+    if cell.startswith("R") and cell != self_label:
+        return False  # occupied by a different robot
+    return True  # "." or "P" or self's own cell
+
+
+def _suggest_move(
+    robot_r: int, robot_c: int,
+    target_r: int, target_c: int,
+    grid: list[list[str]],
+    self_label: str,
+    stuck: bool = False,
+) -> str:
+    """Return the best 1-step action toward (target_r, target_c).
+
+    Avoids walls, blocked cells, and other robots via grid inspection.
+    If stuck (same cell 3+ steps), tries perpendicular moves first to escape.
+    """
+    moves = [
+        ("move_up",    robot_r - 1, robot_c),
+        ("move_down",  robot_r + 1, robot_c),
+        ("move_left",  robot_r,     robot_c - 1),
+        ("move_right", robot_r,     robot_c + 1),
+    ]
+    # Sort by resulting Manhattan distance to target (closest first)
+    moves.sort(key=lambda m: abs(m[1] - target_r) + abs(m[2] - target_c))
+
+    if stuck:
+        # Try lateral/perpendicular moves first to break the deadlock
+        current_dist = abs(robot_r - target_r) + abs(robot_c - target_c)
+        lateral = [m for m in moves
+                   if abs(m[1] - target_r) + abs(m[2] - target_c) >= current_dist]
+        forward = [m for m in moves
+                   if abs(m[1] - target_r) + abs(m[2] - target_c) < current_dist]
+        moves = lateral + forward
+
+    for action, nr, nc in moves:
+        if _cell_passable(grid, nr, nc, self_label):
+            return action
+
+    return "wait"  # completely boxed in
+
+
+def _nearest_passable_adjacent(
+    robot_r: int, robot_c: int,
+    target_r: int, target_c: int,
+    grid: list[list[str]],
+    self_label: str,
+) -> tuple[int, int]:
+    """Adjacent cell to target that is passable and closest to robot."""
+    candidates = [
+        (target_r - 1, target_c),
+        (target_r + 1, target_c),
+        (target_r,     target_c - 1),
+        (target_r,     target_c + 1),
+    ]
+    passable = [p for p in candidates if _cell_passable(grid, p[0], p[1], self_label)]
+    pool = passable if passable else candidates  # fallback: ignore passability
+    return min(pool, key=lambda p: abs(p[0] - robot_r) + abs(p[1] - robot_c))
+
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 
@@ -42,20 +143,18 @@ def log_print(msg: str) -> None:
     with open("simulation.log", "a", encoding="utf-8") as f:
         f.write(msg + "\n")
 
+
 # ─── Grid rendering ─────────────────────────────────────────────────────────
 
 def render_grid(obs, action_str: str = "", reward: float = 0.0) -> None:
     os.system("cls" if os.name == "nt" else "clear")
     lines = []
 
-    W = max(10, obs.max_steps // 10)  # rough width guess
     sep = "═" * (obs.max_steps // 5 + 10)
-
     lines.append(sep)
     lines.append(f"  Task: {obs.task_id}   Step: {obs.step_count}/{obs.max_steps}")
     lines.append(sep)
 
-    # Build carrying-robot set for visual indicator
     carrying = {r.id for r in obs.robots if r.carrying_item}
 
     for row in obs.grid:
@@ -64,13 +163,12 @@ def render_grid(obs, action_str: str = "", reward: float = 0.0) -> None:
             if cell == ".":
                 line_parts.append("[ . ]")
             elif cell == "S":
-                line_parts.append("[■S■]")   # shelf wall
+                line_parts.append("[■S■]")
             elif cell == "P":
-                line_parts.append("[_P_]")   # packing station
+                line_parts.append("[_P_]")
             elif cell == "X":
-                line_parts.append("[XXX]")   # blocked
+                line_parts.append("[XXX]")
             else:
-                # Robot label e.g. "R0", "R1"
                 try:
                     rid = int(cell[1:])
                     marker = f"{cell}*" if rid in carrying else f"{cell} "
@@ -81,16 +179,14 @@ def render_grid(obs, action_str: str = "", reward: float = 0.0) -> None:
 
     lines.append("─" * len(lines[-1]))
 
-    # Order summary
-    delivered = sum(1 for o in obs.order_queue if o["status"] == "delivered")
+    delivered  = sum(1 for o in obs.order_queue if o["status"] == "delivered")
     in_transit = sum(1 for o in obs.order_queue if o["status"] == "picked")
-    pending = sum(1 for o in obs.order_queue if o["status"] == "pending")
-    total = len(obs.order_queue)
+    pending    = sum(1 for o in obs.order_queue if o["status"] == "pending")
+    total      = len(obs.order_queue)
     lines.append(
         f"  Orders: {delivered}/{total} done  |  {in_transit} in-transit  |  {pending} pending"
     )
 
-    # Per-robot status
     robot_parts = []
     for r in obs.robots:
         if not r.is_active:
@@ -114,16 +210,8 @@ def render_grid(obs, action_str: str = "", reward: float = 0.0) -> None:
     with open("simulation.log", "a", encoding="utf-8") as f:
         f.write(out + "\n\n")
 
+
 # ─── Prompt helpers ──────────────────────────────────────────────────────────
-
-def _adjacent_cells(r: int, c: int) -> list[tuple[int, int]]:
-    return [(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)]
-
-
-def _nearest_adjacent(robot_r: int, robot_c: int, target_r: int, target_c: int) -> tuple[int, int]:
-    candidates = _adjacent_cells(target_r, target_c)
-    return min(candidates, key=lambda p: abs(p[0] - robot_r) + abs(p[1] - robot_c))
-
 
 def _build_order_info(obs) -> str:
     lines = []
@@ -141,19 +229,24 @@ def _build_order_info(obs) -> str:
 
 
 def _build_robot_info(obs) -> str:
+    """Per-robot instructions with:
+    - Explicit list of OTHER robots' cells to avoid
+    - Grid-aware suggested next action
+    - Deadlock warning + escape hint when stuck 3+ steps
     """
-    Distribute unassigned orders to idle robots so they don't all rush the same shelf.
-    Each idle robot gets a DIFFERENT order.
-    """
-    # Collect unassigned pending orders in order
+    grid = obs.grid
+
+    # Current positions of all active robots
+    active_positions: dict[int, tuple[int, int]] = {
+        r.id: (r.row, r.col) for r in obs.robots if r.is_active
+    }
+
+    # Round-robin: distribute unassigned pending orders to idle robots
     unassigned_orders = [
         o for o in obs.order_queue
         if o["status"] == "pending" and o.get("assigned_robot_id") is None
     ]
-    # Idle active robots
     idle_robots = [r for r in obs.robots if r.is_active and not r.assigned_order_id]
-
-    # Round-robin: robot i → order i (different order per robot)
     idle_to_order: dict[int, dict] = {}
     for i, robot in enumerate(idle_robots):
         if i < len(unassigned_orders):
@@ -165,66 +258,103 @@ def _build_robot_info(obs) -> str:
             lines.append(f"  Robot {r.id}: BROKEN DOWN — omit from response")
             continue
 
+        self_label = f"R{r.id}"
+
+        # Build the avoid-cells string: all OTHER active robots' positions
+        others = [
+            f"({row},{col})[R{rid}]"
+            for rid, (row, col) in active_positions.items()
+            if rid != r.id
+        ]
+        avoid_str = ", ".join(others) if others else "none"
+
+        # Deadlock detection
+        stuck = _is_stuck(r.id, (r.row, r.col), steps=3)
+        stuck_note = " *** STUCK 3+ steps — MUST take a DIFFERENT direction! ***" if stuck else ""
+
+        # Build the task-specific instruction + suggested move
         if r.assigned_order_id:
-            # Robot has a picked order (carrying or moving to shelf)
             order = next(
                 (o for o in obs.order_queue if o["order_id"] == r.assigned_order_id), None
             )
             if order:
                 if r.carrying_item:
                     pr, pc = order["packing_pos"]
-                    dist = abs(r.row - pr) + abs(r.col - pc)
-                    if dist <= 1:
-                        lines.append(
-                            f"  Robot {r.id} at ({r.row},{r.col}): CARRYING {r.assigned_order_id} — "
-                            f"already next to packing station ({pr},{pc}). Action='drop' NOW."
+                    if abs(r.row - pr) + abs(r.col - pc) <= 1:
+                        suggested = "drop"
+                        task_line = (
+                            f"CARRYING {r.assigned_order_id} — adjacent to "
+                            f"packing station ({pr},{pc}). Suggested: 'drop' NOW."
                         )
                     else:
-                        adj_r, adj_c = _nearest_adjacent(r.row, r.col, pr, pc)
-                        lines.append(
-                            f"  Robot {r.id} at ({r.row},{r.col}): CARRYING {r.assigned_order_id} → "
-                            f"move toward ({adj_r},{adj_c}) [next to packing station ({pr},{pc})], then drop."
+                        adj_r, adj_c = _nearest_passable_adjacent(
+                            r.row, r.col, pr, pc, grid, self_label
+                        )
+                        suggested = _suggest_move(
+                            r.row, r.col, adj_r, adj_c, grid, self_label, stuck
+                        )
+                        task_line = (
+                            f"CARRYING {r.assigned_order_id} → target ({adj_r},{adj_c}) "
+                            f"[adjacent to packing station ({pr},{pc})], then drop. "
+                            f"Suggested: '{suggested}'"
                         )
                 else:
-                    # Was assigned but hasn't picked yet (shouldn't happen after pick, but handle it)
                     sr, sc = order["shelf_pos"]
-                    dist = abs(r.row - sr) + abs(r.col - sc)
-                    if dist <= 1:
-                        lines.append(
-                            f"  Robot {r.id} at ({r.row},{r.col}): NEXT TO shelf ({sr},{sc}) — "
-                            f"action='pick' NOW for {r.assigned_order_id}."
+                    if abs(r.row - sr) + abs(r.col - sc) <= 1:
+                        suggested = "pick"
+                        task_line = (
+                            f"NEXT TO shelf ({sr},{sc}) for {r.assigned_order_id}. "
+                            f"Suggested: 'pick' NOW."
                         )
                     else:
-                        adj_r, adj_c = _nearest_adjacent(r.row, r.col, sr, sc)
-                        lines.append(
-                            f"  Robot {r.id} at ({r.row},{r.col}): go to ({adj_r},{adj_c}) "
-                            f"[next to shelf WALL at ({sr},{sc})] then pick {r.assigned_order_id}. "
-                            f"Do NOT enter ({sr},{sc})."
+                        adj_r, adj_c = _nearest_passable_adjacent(
+                            r.row, r.col, sr, sc, grid, self_label
                         )
+                        suggested = _suggest_move(
+                            r.row, r.col, adj_r, adj_c, grid, self_label, stuck
+                        )
+                        task_line = (
+                            f"target ({adj_r},{adj_c}) [adjacent to shelf WALL ({sr},{sc})] "
+                            f"for {r.assigned_order_id}. Do NOT enter ({sr},{sc}). "
+                            f"Suggested: '{suggested}'"
+                        )
+            else:
+                task_line = "order not found — action='wait'."
+                suggested = "wait"
         else:
-            # Idle — use pre-distributed order
             order = idle_to_order.get(r.id)
             if order:
                 sr, sc = order["shelf_pos"]
-                dist = abs(r.row - sr) + abs(r.col - sc)
-                if dist <= 1:
-                    lines.append(
-                        f"  Robot {r.id} at ({r.row},{r.col}): NEXT TO shelf ({sr},{sc}) — "
-                        f"action='pick' NOW for {order['order_id']}."
+                if abs(r.row - sr) + abs(r.col - sc) <= 1:
+                    suggested = "pick"
+                    task_line = (
+                        f"NEXT TO shelf ({sr},{sc}) for {order['order_id']}. "
+                        f"Suggested: 'pick' NOW."
                     )
                 else:
-                    adj_r, adj_c = _nearest_adjacent(r.row, r.col, sr, sc)
-                    lines.append(
-                        f"  Robot {r.id} at ({r.row},{r.col}): IDLE → go to ({adj_r},{adj_c}) "
-                        f"[next to shelf WALL at ({sr},{sc})] for {order['order_id']}. "
-                        f"Do NOT enter ({sr},{sc})."
+                    adj_r, adj_c = _nearest_passable_adjacent(
+                        r.row, r.col, sr, sc, grid, self_label
+                    )
+                    suggested = _suggest_move(
+                        r.row, r.col, adj_r, adj_c, grid, self_label, stuck
+                    )
+                    task_line = (
+                        f"IDLE → target ({adj_r},{adj_c}) [adjacent to shelf WALL ({sr},{sc})] "
+                        f"for {order['order_id']}. Do NOT enter ({sr},{sc}). "
+                        f"Suggested: '{suggested}'"
                     )
             else:
-                lines.append(
-                    f"  Robot {r.id} at ({r.row},{r.col}): IDLE — all orders handled, action='wait'."
-                )
+                task_line = "IDLE — all orders handled. Suggested: 'wait'."
+                suggested = "wait"
+
+        lines.append(
+            f"  Robot {r.id} at ({r.row},{r.col}){stuck_note}\n"
+            f"    AVOID (other robots): {avoid_str}\n"
+            f"    {task_line}"
+        )
 
     return "\n".join(lines)
+
 
 # ─── LLM call ────────────────────────────────────────────────────────────────
 
@@ -249,7 +379,6 @@ def get_actions(obs, active_robot_ids: list[int]) -> tuple[WarehouseAction, str 
         if start != -1 and end > start:
             parsed = json.loads(text[start:end])
         else:
-            # Fallback: model returned single object
             start_d = text.find("{")
             end_d   = text.rfind("}") + 1
             if start_d != -1 and end_d > start_d:
@@ -280,11 +409,14 @@ def get_actions(obs, active_robot_ids: list[int]) -> tuple[WarehouseAction, str 
         wait_actions = [RobotAction(robot_id=rid, action_type="wait") for rid in active_robot_ids]
         return WarehouseAction(robots=wait_actions), str(exc)
 
+
 # ─── Task runner ─────────────────────────────────────────────────────────────
 
 def run_task(env: WarehouseEnv, task_id: str) -> None:
     task_config = TASK_REGISTRY[task_id]
+    _reset_history()               # fresh deadlock history for each task
     obs = env.reset(task_id=task_id)
+    _update_history(obs)           # record initial positions
     all_rewards: list[float] = []
 
     log_print(f"[START] task={task_id} env=warehouse model={MODEL_NAME}")
@@ -295,6 +427,7 @@ def run_task(env: WarehouseEnv, task_id: str) -> None:
         action, error_msg = get_actions(obs, active_ids)
 
         obs = env.step(action)
+        _update_history(obs)       # record positions after step
         reward = obs.reward
         done   = obs.done
         all_rewards.append(reward)
@@ -312,11 +445,7 @@ def run_task(env: WarehouseEnv, task_id: str) -> None:
             break
 
     score   = GRADER_REGISTRY[task_id](env)
-    # "success" means the agent actually delivered something — not that the
-    # clamped score is > 0 (which is always true by construction).
-    delivered = sum(
-        1 for o in obs.order_queue if o["status"] == "delivered"
-    )
+    delivered = sum(1 for o in obs.order_queue if o["status"] == "delivered")
     success = delivered > 0
     rewards_str = ",".join(f"{r:.4f}" for r in all_rewards)
 
@@ -324,6 +453,7 @@ def run_task(env: WarehouseEnv, task_id: str) -> None:
         f"[END] success={str(success).lower()} steps={len(all_rewards)} "
         f"score={score:.4f} rewards={rewards_str}"
     )
+
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
