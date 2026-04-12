@@ -81,6 +81,72 @@ def _cell_passable(grid: list[list[str]], r: int, c: int, self_label: str = "") 
     return True  # "." or "P" or self's own cell
 
 
+def _bfs_first_step(
+    robot_r: int, robot_c: int,
+    target_r: int, target_c: int,
+    grid: list[list[str]],
+    self_label: str,
+    stuck: bool = False,
+) -> str:
+    """BFS shortest-path to target. Returns the first action on that path.
+
+    Pass 1: treat other robots as obstacles (they may move next step).
+    Pass 2 (fallback): ignore other robots — finds path even when blocked.
+    If completely surrounded by walls, returns 'wait'.
+    If stuck is True and pass 1 finds no path, tries a perpendicular escape
+    before resorting to pass 2.
+    """
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
+    start = (robot_r, robot_c)
+    goal  = (target_r, target_c)
+
+    if start == goal:
+        return "wait"
+
+    DIRS = [("move_up", -1, 0), ("move_down", 1, 0),
+            ("move_left", 0, -1), ("move_right", 0, 1)]
+
+    def _bfs(ignore_robots: bool) -> str:
+        q: deque[tuple[tuple[int, int], str]] = deque([(start, "")])
+        visited: set[tuple[int, int]] = {start}
+        while q:
+            (r, c), first = q.popleft()
+            for action, dr, dc in DIRS:
+                nr, nc = r + dr, c + dc
+                if (nr, nc) in visited:
+                    continue
+                if not (0 <= nr < rows and 0 <= nc < cols):
+                    continue
+                cell = grid[nr][nc]
+                if cell in ("S", "X"):
+                    continue
+                if not ignore_robots and cell.startswith("R") and cell != self_label:
+                    continue
+                step = action if not first else first
+                if (nr, nc) == goal:
+                    return step
+                visited.add((nr, nc))
+                q.append(((nr, nc), step))
+        return ""
+
+    # Pass 1: respect other robots
+    result = _bfs(ignore_robots=False)
+    if result:
+        return result
+
+    # Stuck escape: try perpendicular first before ignoring robots
+    if stuck:
+        for action, dr, dc in DIRS:
+            nr, nc = robot_r + dr, robot_c + dc
+            if _cell_passable(grid, nr, nc, self_label):
+                return action
+
+    # Pass 2: ignore other robots (they might move next step)
+    result = _bfs(ignore_robots=True)
+    return result if result else "wait"
+
+
 def _suggest_move(
     robot_r: int, robot_c: int,
     target_r: int, target_c: int,
@@ -88,34 +154,9 @@ def _suggest_move(
     self_label: str,
     stuck: bool = False,
 ) -> str:
-    """Return the best 1-step action toward (target_r, target_c).
-
-    Avoids walls, blocked cells, and other robots via grid inspection.
-    If stuck (same cell 3+ steps), tries perpendicular moves first to escape.
-    """
-    moves = [
-        ("move_up",    robot_r - 1, robot_c),
-        ("move_down",  robot_r + 1, robot_c),
-        ("move_left",  robot_r,     robot_c - 1),
-        ("move_right", robot_r,     robot_c + 1),
-    ]
-    # Sort by resulting Manhattan distance to target (closest first)
-    moves.sort(key=lambda m: abs(m[1] - target_r) + abs(m[2] - target_c))
-
-    if stuck:
-        # Try lateral/perpendicular moves first to break the deadlock
-        current_dist = abs(robot_r - target_r) + abs(robot_c - target_c)
-        lateral = [m for m in moves
-                   if abs(m[1] - target_r) + abs(m[2] - target_c) >= current_dist]
-        forward = [m for m in moves
-                   if abs(m[1] - target_r) + abs(m[2] - target_c) < current_dist]
-        moves = lateral + forward
-
-    for action, nr, nc in moves:
-        if _cell_passable(grid, nr, nc, self_label):
-            return action
-
-    return "wait"  # completely boxed in
+    """Wrapper: delegates to BFS for true shortest-path navigation."""
+    return _bfs_first_step(robot_r, robot_c, target_r, target_c,
+                           grid, self_label, stuck=stuck)
 
 
 def _nearest_passable_adjacent(
@@ -228,11 +269,46 @@ def _build_order_info(obs) -> str:
     return "\n".join(lines) if lines else "  All orders delivered!"
 
 
+def _assign_orders_nearest(
+    idle_robots: list,
+    unassigned_orders: list[dict],
+) -> dict[int, dict]:
+    """Greedy nearest-neighbour order assignment.
+
+    Builds every (distance, robot_id, order_id) triple, sorts ascending,
+    and greedily assigns the closest robot-order pair first — far better
+    than round-robin at preventing two robots charging the same shelf.
+    """
+    if not idle_robots or not unassigned_orders:
+        return {}
+    order_by_id = {o["order_id"]: o for o in unassigned_orders}
+    pairs: list[tuple[int, int, str]] = []
+    for robot in idle_robots:
+        for order in unassigned_orders:
+            sr, sc = order["shelf_pos"]
+            dist = abs(robot.row - sr) + abs(robot.col - sc)
+            pairs.append((dist, robot.id, order["order_id"]))
+    pairs.sort()
+
+    assigned_robots: set[int] = set()
+    assigned_orders: set[str] = set()
+    result: dict[int, dict] = {}
+    for dist, robot_id, order_id in pairs:
+        if robot_id in assigned_robots or order_id in assigned_orders:
+            continue
+        result[robot_id] = order_by_id[order_id]
+        assigned_robots.add(robot_id)
+        assigned_orders.add(order_id)
+    return result
+
+
 def _build_robot_info(obs) -> str:
     """Per-robot instructions with:
-    - Explicit list of OTHER robots' cells to avoid
-    - Grid-aware suggested next action
-    - Deadlock warning + escape hint when stuck 3+ steps
+    - Greedy nearest-neighbour order assignment (no two robots to same shelf)
+    - BFS-computed suggested next action (shortest path around walls)
+    - Explicit AVOID cells per robot (other robots' current positions)
+    - Deadlock warning + perpendicular escape hint when stuck 3+ steps
+    - Surge pre-warning for crisis_management (steps 18-24)
     """
     grid = obs.grid
 
@@ -241,16 +317,23 @@ def _build_robot_info(obs) -> str:
         r.id: (r.row, r.col) for r in obs.robots if r.is_active
     }
 
-    # Round-robin: distribute unassigned pending orders to idle robots
+    # Nearest-neighbour assignment: idle robots → closest unassigned orders
     unassigned_orders = [
         o for o in obs.order_queue
         if o["status"] == "pending" and o.get("assigned_robot_id") is None
     ]
     idle_robots = [r for r in obs.robots if r.is_active and not r.assigned_order_id]
-    idle_to_order: dict[int, dict] = {}
-    for i, robot in enumerate(idle_robots):
-        if i < len(unassigned_orders):
-            idle_to_order[robot.id] = unassigned_orders[i]
+    idle_to_order = _assign_orders_nearest(idle_robots, unassigned_orders)
+
+    lines: list[str] = []
+
+    # Surge pre-warning (crisis_management only, steps 18-24)
+    if obs.task_id == "crisis_management" and 18 <= obs.step_count < 25:
+        steps_left = 25 - obs.step_count
+        lines.append(
+            f"  *** SURGE ALERT: {steps_left} steps until 5 new orders arrive (step 25)! "
+            f"Idle robots: move toward shelves now to handle the surge. ***"
+        )
 
     lines = []
     for r in obs.robots:
