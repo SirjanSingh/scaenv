@@ -111,8 +111,8 @@ Runs all 3 tasks sequentially and writes `[START]` / `[STEP]` / `[END]` lines to
 
 | Task | Score | Orders | Steps Used | Notes |
 |---|---|---|---|---|
-| `solo_delivery` | **0.99** | 5/5 | 91/100 | All orders delivered |
-| `coordinated_delivery` | **0.40** | 9/10 | 150/150 | 1 order undelivered at timeout; score penalised by collisions early in episode |
+| `solo_delivery` | **0.99** | 5/5 | 83/100 | All orders delivered |
+| `coordinated_delivery` | **0.70** | 7/10 | 139/150 | BFS rerouted around blocked aisle at step 20 |
 | `crisis_management` | **0.64** | 20/25 | 200/200 | Robot 2 broke at step 15; 3 surge orders in-transit at timeout |
 
 **Dumb baseline (all robots `wait` every step):**
